@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "sqlite_explorer_server": {
+      "command": "python",
+      "args": [
+        "sqlite_mcp_server.py"
+      ],
+      "disabled": false
+    }
+  }
+}
+
