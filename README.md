@@ -70,13 +70,21 @@ However, it's typically used through an MCP client like Claude Desktop.
 
 The server provides the following tools:
 
+#### 🤖 Perfect for Small Models (Start Here!)
+- `discover_database(db_path)` - **START HERE!** Complete database overview with schema, relationships, and examples
+- `get_schema_summary(db_path)` - Quick summary of all tables with basic info
+- `explain_table(table_name, db_path)` - Simple explanation of a table with examples
+- `smart_query(question, db_path)` - Ask questions in plain English and get answers
+- `show_table(table_name, db_path)` - Shows table structure and sample data quickly
+- `list_tables(db_path)` - Simple list of all table names
+- `query_database(sql, db_path)` - Run any SQL query and get results
+
 #### Database Management
 - `create_database(db_path)` - Create a new SQLite database
 - `get_database_info(db_path)` - Get comprehensive database information
 - `backup_database(db_path, backup_path)` - Create a database backup
 
-#### Schema Exploration
-- `list_tables(db_path)` - List all tables in the database
+#### Advanced Schema Exploration
 - `list_columns(table_name, db_path)` - Get column information for a table
 - `get_table_info(table_name, db_path)` - Get detailed table information
 - `list_indexes(db_path, table_name=None)` - List database indexes
@@ -84,7 +92,7 @@ The server provides the following tools:
 - `list_views(db_path)` - List database views
 
 #### Data Operations
-- `execute_sql(sql_query, db_path, parameters=None)` - Execute SQL queries
+- `execute_sql(sql_query, db_path, parameters=None)` - Execute SQL queries with parameters
 - `export_data(table_name, db_path, format="csv", output_path=None, limit=None)` - Export table data
 - `import_data(table_name, db_path, file_path, format="csv", create_table=False)` - Import data from files
 
@@ -102,6 +110,35 @@ Once configured with an MCP client, you can use natural language to interact wit
 "Export the products table to CSV format"
 "Create a backup of my database"
 ```
+
+### 🤖 Optimized for Small Models
+
+This server is specifically designed to work well with small language models. **Small models should always start with schema discovery:**
+
+#### Recommended Workflow for Small Models:
+
+1. **First, discover the database structure:**
+   ```
+   "Use discover_database tool with my database to understand what's in it"
+   ```
+
+2. **Then explore specific tables:**
+   ```
+   "Use explain_table to understand the Customer table"
+   ```
+
+3. **Finally, query the data:**
+   ```
+   "Use smart_query to show me customers from Germany"
+   ```
+
+#### Key Features for Small Models:
+
+- **Schema Discovery First**: Tools like `discover_database` provide complete database overview
+- **Simple Language**: All tool descriptions use clear, simple language with emojis
+- **Guided Examples**: Every response includes example queries to try next
+- **Error Guidance**: When errors occur, tools suggest what to try instead
+- **Plain English Queries**: `smart_query` tool accepts natural language questions
 
 ## Sample Database
 

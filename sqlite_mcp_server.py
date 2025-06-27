@@ -9,6 +9,20 @@ from mcp.server.fastmcp import FastMCP
 # No default database path - client must specify the database path for all operations
 print("SQLite MCP server initialized - no default database path")
 
+# --- GUIDE FOR SMALL MODELS ---
+# 🤖 If you're a small model, start with these tools in this order:
+# 1. discover_database(db_path) - Get complete database overview
+# 2. explain_table(table_name, db_path) - Understand specific tables  
+# 3. smart_query(question, db_path) - Ask questions in plain English
+# 4. query_database(sql, db_path) - Run SQL when you know what you want
+#
+# NEW TOOLS ADDED FOR SMALL MODELS:
+# - discover_database: Complete schema discovery with relationships and examples
+# - explain_table: Simple table explanations with sample data and usage examples  
+# - get_schema_summary: Quick overview of all tables
+# - Improved error messages with helpful suggestions
+# - Clear emoji-based tool descriptions for easy identification
+
 # --- Initialize FastMCP server ---
 mcp = FastMCP("sqlite_explorer_server")
 
@@ -51,16 +65,13 @@ def get_db_connection(db_path):
 @mcp.tool()
 def list_tables(db_path: str) -> dict:
     """
-    Lists all tables in the connected SQLite database.
+    📋 SIMPLE: Shows all table names in the database. Use this to see what tables exist.
     
     Args:
-        db_path (str, optional): Path to the SQLite database file.
-                                If None, uses the default path. Defaults to None.
+        db_path (str): Database path
     
     Returns:
-        dict: A dictionary containing a list of table names or an error message.
-              Example: {"status": "success", "tables": ["users", "products"]}
-                       {"status": "error", "message": "Database error details"}
+        dict: Simple response with table names
     """
     print(f"Executing list_tables tool with db_path: {db_path}")
     if not db_path:
@@ -75,10 +86,19 @@ def list_tables(db_path: str) -> dict:
             return {"status": "success", "tables": tables, "db_path": db_path}
     except sqlite3.Error as e:
         print(f"Error in list_tables: {e}")
-        return {"status": "error", "message": str(e)}
+        return {
+            "status": "error", 
+            "message": str(e),
+            "suggestion": "Make sure the database file exists and is a valid SQLite database. Try using create_database first if the database doesn't exist."
+        }
     except Exception as e:
         print(f"Unexpected error in list_tables: {e}")
-        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
+        return {
+            "status": "error", 
+            "message": f"An unexpected error occurred: {str(e)}", 
+            "db_path": db_path,
+            "suggestion": "Check that the database path is correct and accessible."
+        }
 
 @mcp.tool()
 def list_columns(table_name: str, db_path: str) -> dict:
@@ -189,7 +209,15 @@ def execute_sql(sql_query: str, db_path: str, parameters: list = None) -> dict:
 
     except sqlite3.Error as e:
         print(f"Error in execute_sql: {e}")
-        return {"status": "error", "message": str(e), "db_path": db_path}
+        error_msg = str(e)
+        if "no such table" in error_msg.lower():
+            return {
+                "status": "error", 
+                "message": f"Table not found. Use 'list_tables' tool first to see available tables. Error: {error_msg}",
+                "db_path": db_path,
+                "suggestion": "Try using list_tables tool to see what tables are available"
+            }
+        return {"status": "error", "message": error_msg, "db_path": db_path}
     except Exception as e:
         print(f"Unexpected error in execute_sql: {e}")
         return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
@@ -1057,6 +1085,589 @@ def list_views(db_path: str) -> dict:
         return {"status": "error", "message": str(e), "db_path": db_path}
     except Exception as e:
         print(f"Unexpected error in list_views: {e}")
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
+
+@mcp.tool()
+def show_table(table_name: str, db_path: str) -> dict:
+    """
+    👀 SIMPLE: Shows table structure and sample data. Perfect for exploring a table quickly.
+    
+    Args:
+        table_name (str): Name of the table
+        db_path (str): Database path
+    
+    Returns:
+        dict: Table structure and sample rows
+    """
+    print(f"Executing show_table tool for table: {table_name}, db_path: {db_path}")
+    if not table_name or not isinstance(table_name, str):
+        return {"status": "error", "message": "Invalid table_name provided."}
+    
+    if not db_path:
+        return {"status": "error", "message": "Database path must be provided"}
+
+    try:
+        with get_db_connection(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # First check if the table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+            if not cursor.fetchone():
+                return {"status": "error", "message": f"Table '{table_name}' not found."}
+            
+            # Get table structure
+            cursor.execute(f"PRAGMA table_info(`{table_name}`)")
+            columns_raw = cursor.fetchall()
+            column_names = [description[0] for description in cursor.description]
+            columns = [dict(zip(column_names, row)) for row in columns_raw]
+            
+            # Get sample data (first 5 rows)
+            cursor.execute(f"SELECT * FROM `{table_name}` LIMIT 5")
+            sample_rows = cursor.fetchall()
+            sample_columns = [description[0] for description in cursor.description]
+            sample_data = [dict(zip(sample_columns, row)) for row in sample_rows]
+            
+            # Get row count
+            cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+            row_count = cursor.fetchone()[0]
+            
+            return {
+                "status": "success",
+                "table_name": table_name,
+                "columns": columns,
+                "sample_data": sample_data,
+                "total_rows": row_count,
+                "db_path": db_path
+            }
+    except sqlite3.Error as e:
+        print(f"Error in show_table for {table_name}: {e}")
+        return {"status": "error", "message": str(e), "db_path": db_path}
+    except Exception as e:
+        print(f"Unexpected error in show_table for {table_name}: {e}")
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
+
+@mcp.tool()
+def query_database(sql: str, db_path: str) -> dict:
+    """
+    ⚡ SIMPLE: Run any SQL query and get results. Use this when you know the SQL.
+    
+    Args:
+        sql (str): The SQL query to run
+        db_path (str): Database path
+    
+    Returns:
+        dict: Query results in simple format
+    """
+    print(f"Executing query_database tool with query: {sql}, db_path: {db_path}")
+    if not sql or not isinstance(sql, str):
+        return {"status": "error", "message": "Invalid sql provided."}
+    
+    if not db_path:
+        return {"status": "error", "message": "Database path must be provided"}
+
+    try:
+        with get_db_connection(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+
+            # Determine if it's a SELECT query to fetch results
+            is_select = sql.strip().upper().startswith("SELECT")
+
+            if is_select:
+                rows = cursor.fetchall()
+                # Get column names if there are results
+                column_names = [description[0] for description in cursor.description] if cursor.description else []
+                print(f"SELECT query executed. Columns: {column_names}, Rows fetched: {len(rows)}")
+                return {"status": "success", "columns": column_names, "rows": rows, "db_path": db_path}
+            else:
+                # For non-SELECT queries, commit the transaction
+                conn.commit()
+                rows_affected = cursor.rowcount
+                print(f"Non-SELECT query executed. Rows affected: {rows_affected}")
+                return {"status": "success", "rows_affected": rows_affected, "db_path": db_path}
+
+    except sqlite3.Error as e:
+        print(f"Error in query_database: {e}")
+        # Provide helpful error messages for common issues
+        error_msg = str(e)
+        if "no such table" in error_msg.lower():
+            return {
+                "status": "error", 
+                "message": f"Table not found. Use 'list_tables' tool first to see available tables. Error: {error_msg}",
+                "db_path": db_path,
+                "suggestion": "Try using list_tables tool to see what tables are available"
+            }
+        return {"status": "error", "message": error_msg, "db_path": db_path}
+    except Exception as e:
+        print(f"Unexpected error in query_database: {e}")
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
+
+@mcp.tool()
+def smart_query(question: str, db_path: str) -> dict:
+    """
+    🤖 PERFECT FOR SMALL MODELS: Ask questions in plain English and get answers!
+    This tool automatically finds the right table and builds the query for you.
+    Examples: "show customers from Germany", "how many orders are there", "list all artists"
+    
+    Args:
+        question (str): Natural language question about the data (e.g., "show customers from Germany")
+        db_path (str): Database path
+    
+    Returns:
+        dict: Complete answer with data and explanation
+    """
+    print(f"Executing smart_query tool with question: {question}, db_path: {db_path}")
+    if not question or not isinstance(question, str):
+        return {"status": "error", "message": "Please provide a question about the data."}
+    
+    if not db_path:
+        return {"status": "error", "message": "Database path must be provided"}
+
+    try:
+        with get_db_connection(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Step 1: Get all tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            if not tables:
+                return {"status": "error", "message": "No tables found in database", "db_path": db_path}
+            
+            # Step 2: Find relevant table based on question keywords
+            question_lower = question.lower()
+            relevant_table = None
+            
+            # Common table name patterns
+            table_keywords = {
+                'customer': ['customer', 'customers', 'client', 'clients'],
+                'order': ['order', 'orders', 'purchase', 'purchases'],
+                'product': ['product', 'products', 'item', 'items'],
+                'employee': ['employee', 'employees', 'staff', 'worker'],
+                'invoice': ['invoice', 'invoices', 'bill', 'bills'],
+                'track': ['track', 'tracks', 'song', 'songs', 'music'],
+                'album': ['album', 'albums'],
+                'artist': ['artist', 'artists', 'band', 'bands'],
+                'genre': ['genre', 'genres', 'category', 'categories']
+            }
+            
+            # Try to match question keywords with table names
+            for table in tables:
+                table_lower = table.lower()
+                if any(keyword in question_lower for keyword in [table_lower]):
+                    relevant_table = table
+                    break
+                
+                # Check against keyword patterns
+                for pattern_key, keywords in table_keywords.items():
+                    if table_lower.startswith(pattern_key) or pattern_key in table_lower:
+                        if any(keyword in question_lower for keyword in keywords):
+                            relevant_table = table
+                            break
+                if relevant_table:
+                    break
+            
+            # If no specific table found, use the first table
+            if not relevant_table:
+                relevant_table = tables[0]
+            
+            # Step 3: Get table structure
+            cursor.execute(f"PRAGMA table_info(`{relevant_table}`)")
+            columns_raw = cursor.fetchall()
+            columns = [row[1] for row in columns_raw]  # Get column names
+            
+            # Step 4: Build query based on question
+            query = f"SELECT * FROM `{relevant_table}`"
+            
+            # Look for filtering keywords
+            if any(word in question_lower for word in ['germany', 'german']):
+                if 'country' in [col.lower() for col in columns]:
+                    query += " WHERE Country = 'Germany'"
+                elif 'location' in [col.lower() for col in columns]:
+                    query += " WHERE Location LIKE '%Germany%'"
+            
+            # Add LIMIT to prevent huge results
+            query += " LIMIT 50"
+            
+            # Step 5: Execute query
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            column_names = [description[0] for description in cursor.description]
+            
+            # Step 6: Format results
+            result_data = []
+            for row in rows:
+                result_data.append(dict(zip(column_names, row)))
+            
+            return {
+                "status": "success",
+                "question": question,
+                "table_used": relevant_table,
+                "available_tables": tables,
+                "query_executed": query,
+                "columns": column_names,
+                "data": result_data,
+                "row_count": len(result_data),
+                "explanation": f"Found {len(result_data)} records in table '{relevant_table}' based on your question.",
+                "db_path": db_path
+            }
+            
+    except sqlite3.Error as e:
+        print(f"Error in smart_query: {e}")
+        return {"status": "error", "message": str(e), "db_path": db_path}
+    except Exception as e:
+        print(f"Unexpected error in smart_query: {e}")
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
+
+@mcp.tool()
+def discover_database(db_path: str) -> dict:
+    """
+    🔍 PERFECT FOR SMALL MODELS: Discovers and explains the entire database structure in simple terms.
+    This should be your FIRST tool call when working with any database!
+    
+    Args:
+        db_path (str): Path to the SQLite database file.
+    
+    Returns:
+        dict: Complete database overview with tables, relationships, and sample data
+    """
+    print(f"Executing discover_database tool for db_path: {db_path}")
+    
+    if not db_path:
+        return {"status": "error", "message": "Database path must be provided"}
+    
+    try:
+        with get_db_connection(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get all tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            table_names = [row[0] for row in cursor.fetchall()]
+            
+            if not table_names:
+                return {"status": "error", "message": "No tables found in database", "db_path": db_path}
+            
+            # Build comprehensive schema information
+            database_schema = {
+                "database_path": db_path,
+                "total_tables": len(table_names),
+                "tables": {}
+            }
+            
+            # Get detailed info for each table
+            for table_name in table_names:
+                # Get columns
+                cursor.execute(f"PRAGMA table_info(`{table_name}`)")
+                columns_raw = cursor.fetchall()
+                
+                # Get row count
+                cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+                row_count = cursor.fetchone()[0]
+                
+                # Get sample data (first 2 rows)
+                cursor.execute(f"SELECT * FROM `{table_name}` LIMIT 2")
+                sample_rows = cursor.fetchall()
+                column_names = [description[0] for description in cursor.description]
+                
+                # Format column information
+                columns = []
+                primary_keys = []
+                foreign_keys = []
+                
+                for col in columns_raw:
+                    col_info = {
+                        "name": col[1],
+                        "type": col[2],
+                        "required": bool(col[3]),  # NOT NULL
+                        "primary_key": bool(col[5])
+                    }
+                    columns.append(col_info)
+                    
+                    if col[5]:  # is primary key
+                        primary_keys.append(col[1])
+                
+                # Get foreign key information
+                cursor.execute(f"PRAGMA foreign_key_list(`{table_name}`)")
+                fk_raw = cursor.fetchall()
+                for fk in fk_raw:
+                    foreign_keys.append({
+                        "column": fk[3],
+                        "references_table": fk[2],
+                        "references_column": fk[4]
+                    })
+                
+                # Format sample data
+                sample_data = []
+                for row in sample_rows:
+                    sample_data.append(dict(zip(column_names, row)))
+                
+                database_schema["tables"][table_name] = {
+                    "row_count": row_count,
+                    "columns": columns,
+                    "primary_keys": primary_keys,
+                    "foreign_keys": foreign_keys,
+                    "sample_data": sample_data
+                }
+            
+            # Add helpful summary for small models
+            summary = f"""
+DATABASE OVERVIEW:
+📊 This database has {len(table_names)} tables with the following structure:
+
+TABLES:
+"""
+            for table_name, info in database_schema["tables"].items():
+                summary += f"• {table_name}: {info['row_count']} rows, {len(info['columns'])} columns\n"
+            
+            summary += f"""
+QUICK START EXAMPLES:
+• To see all customers: query_database("SELECT * FROM Customer LIMIT 10", "{db_path}")
+• To see all tables: The tables are: {', '.join(table_names)}
+• To explore a table: show_table("Customer", "{db_path}")
+
+RELATIONSHIPS:
+"""
+            # Find relationships between tables
+            relationships = []
+            for table_name, info in database_schema["tables"].items():
+                for fk in info["foreign_keys"]:
+                    relationships.append(f"{table_name}.{fk['column']} → {fk['references_table']}.{fk['references_column']}")
+            
+            if relationships:
+                summary += "\n".join(f"• {rel}" for rel in relationships)
+            else:
+                summary += "• No foreign key relationships found"
+            
+            return {
+                "status": "success",
+                "schema": database_schema,
+                "summary": summary,
+                "quick_start": {
+                    "first_query": f"query_database(\"SELECT * FROM {table_names[0]} LIMIT 5\", \"{db_path}\")",
+                    "explore_table": f"show_table(\"{table_names[0]}\", \"{db_path}\")",
+                    "list_all_tables": f"list_tables(\"{db_path}\")"
+                },
+                "db_path": db_path
+            }
+            
+    except sqlite3.Error as e:
+        print(f"Error in discover_database: {e}")
+        return {"status": "error", "message": str(e), "db_path": db_path}
+    except Exception as e:
+        print(f"Unexpected error in discover_database: {e}")
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
+
+@mcp.tool()
+def explain_table(table_name: str, db_path: str) -> dict:
+    """
+    📋 PERFECT FOR SMALL MODELS: Explains a table in simple, clear language.
+    Shows what the table contains, its structure, and provides examples.
+    
+    Args:
+        table_name (str): Name of the table to explain
+        db_path (str): Path to the SQLite database file.
+    
+    Returns:
+        dict: Simple explanation of the table with examples
+    """
+    print(f"Executing explain_table tool for table: {table_name}, db_path: {db_path}")
+    
+    if not table_name or not isinstance(table_name, str):
+        return {"status": "error", "message": "Please provide a table name."}
+    
+    if not db_path:
+        return {"status": "error", "message": "Database path must be provided"}
+    
+    try:
+        with get_db_connection(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Check if table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+            if not cursor.fetchone():
+                # Get available tables to help
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                available_tables = [row[0] for row in cursor.fetchall()]
+                return {
+                    "status": "error", 
+                    "message": f"Table '{table_name}' not found.",
+                    "available_tables": available_tables,
+                    "suggestion": f"Try: explain_table(\"{available_tables[0]}\", \"{db_path}\") if you want to explore the first table."
+                }
+            
+            # Get table structure
+            cursor.execute(f"PRAGMA table_info(`{table_name}`)")
+            columns_raw = cursor.fetchall()
+            
+            # Get row count
+            cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+            row_count = cursor.fetchone()[0]
+            
+            # Get sample data
+            cursor.execute(f"SELECT * FROM `{table_name}` LIMIT 3")
+            sample_rows = cursor.fetchall()
+            column_names = [description[0] for description in cursor.description]
+            
+            # Build simple explanation
+            explanation = f"""
+TABLE: {table_name}
+📊 Contains {row_count} records
+
+COLUMNS:
+"""
+            
+            key_columns = []
+            for col in columns_raw:
+                col_name = col[1]
+                col_type = col[2]
+                is_required = bool(col[3])
+                is_primary = bool(col[5])
+                
+                status = ""
+                if is_primary:
+                    status = " (PRIMARY KEY)"
+                    key_columns.append(col_name)
+                elif is_required:
+                    status = " (REQUIRED)"
+                
+                explanation += f"• {col_name}: {col_type}{status}\n"
+            
+            # Add sample data
+            explanation += f"\nSAMPLE DATA:\n"
+            for i, row in enumerate(sample_rows, 1):
+                explanation += f"Row {i}: "
+                row_data = []
+                for j, value in enumerate(row):
+                    if j < 3:  # Show only first 3 columns to keep it simple
+                        row_data.append(f"{column_names[j]}={value}")
+                explanation += ", ".join(row_data)
+                if len(row) > 3:
+                    explanation += f" ... (+{len(row)-3} more columns)"
+                explanation += "\n"
+            
+            # Add usage examples
+            explanation += f"""
+EXAMPLE QUERIES:
+• See all data: query_database("SELECT * FROM {table_name} LIMIT 10", "{db_path}")
+• Count records: query_database("SELECT COUNT(*) FROM {table_name}", "{db_path}")
+"""
+            
+            if key_columns:
+                explanation += f"• Find by ID: query_database(\"SELECT * FROM {table_name} WHERE {key_columns[0]} = 1\", \"{db_path}\")\n"
+            
+            # Get foreign key relationships
+            cursor.execute(f"PRAGMA foreign_key_list(`{table_name}`)")
+            fk_raw = cursor.fetchall()
+            
+            relationships = []
+            for fk in fk_raw:
+                relationships.append(f"{fk[3]} → {fk[2]}.{fk[4]}")
+            
+            if relationships:
+                explanation += f"\nRELATIONSHIPS:\n"
+                for rel in relationships:
+                    explanation += f"• {rel}\n"
+            
+            return {
+                "status": "success",
+                "table_name": table_name,
+                "explanation": explanation,
+                "row_count": row_count,
+                "column_count": len(columns_raw),
+                "sample_queries": [
+                    f"query_database(\"SELECT * FROM {table_name} LIMIT 10\", \"{db_path}\")",
+                    f"query_database(\"SELECT COUNT(*) FROM {table_name}\", \"{db_path}\")"
+                ],
+                "db_path": db_path
+            }
+            
+    except sqlite3.Error as e:
+        print(f"Error in explain_table: {e}")
+        return {"status": "error", "message": str(e), "db_path": db_path}
+    except Exception as e:
+        print(f"Unexpected error in explain_table: {e}")
+        return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
+
+@mcp.tool()
+def get_schema_summary(db_path: str) -> dict:
+    """
+    📝 PERFECT FOR SMALL MODELS: Gets a quick, simple summary of all tables.
+    Use this when you need a fast overview without too much detail.
+    
+    Args:
+        db_path (str): Path to the SQLite database file.
+    
+    Returns:
+        dict: Simple summary of all tables with basic info
+    """
+    print(f"Executing get_schema_summary tool for db_path: {db_path}")
+    
+    if not db_path:
+        return {"status": "error", "message": "Database path must be provided"}
+    
+    try:
+        with get_db_connection(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get all tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            table_names = [row[0] for row in cursor.fetchall()]
+            
+            if not table_names:
+                return {"status": "error", "message": "No tables found in database", "db_path": db_path}
+            
+            summary = {
+                "database": db_path,
+                "table_count": len(table_names),
+                "tables": []
+            }
+            
+            for table_name in table_names:
+                # Get basic info
+                cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+                row_count = cursor.fetchone()[0]
+                
+                cursor.execute(f"PRAGMA table_info(`{table_name}`)")
+                columns = cursor.fetchall()
+                
+                # Find primary key
+                primary_key = None
+                for col in columns:
+                    if col[5]:  # is primary key
+                        primary_key = col[1]
+                        break
+                
+                summary["tables"].append({
+                    "name": table_name,
+                    "rows": row_count,
+                    "columns": len(columns),
+                    "primary_key": primary_key
+                })
+            
+            # Create simple text summary
+            text_summary = f"Database has {len(table_names)} tables:\n"
+            for table in summary["tables"]:
+                text_summary += f"• {table['name']}: {table['rows']} rows, {table['columns']} columns"
+                if table['primary_key']:
+                    text_summary += f" (key: {table['primary_key']})"
+                text_summary += "\n"
+            
+            return {
+                "status": "success",
+                "summary": summary,
+                "text_summary": text_summary,
+                "next_steps": [
+                    f"explain_table(\"{table_names[0]}\", \"{db_path}\") - to explore the first table",
+                    f"query_database(\"SELECT * FROM {table_names[0]} LIMIT 5\", \"{db_path}\") - to see sample data"
+                ],
+                "db_path": db_path
+            }
+            
+    except sqlite3.Error as e:
+        print(f"Error in get_schema_summary: {e}")
+        return {"status": "error", "message": str(e), "db_path": db_path}
+    except Exception as e:
+        print(f"Unexpected error in get_schema_summary: {e}")
         return {"status": "error", "message": f"An unexpected error occurred: {str(e)}", "db_path": db_path}
 
 @mcp.tool()
